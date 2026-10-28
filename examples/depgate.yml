@@ -1,0 +1,16 @@
+# Copy to .github/workflows/depgate.yml in your repo
+name: DepGate
+on:
+  pull_request:
+    paths: ["package-lock.json"]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  depgate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rahulcs754/depgate@main
+        with:
+          fail-on: high

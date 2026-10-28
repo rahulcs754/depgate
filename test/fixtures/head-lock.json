@@ -1,0 +1,15 @@
+{
+  "name": "demo",
+  "lockfileVersion": 3,
+  "packages": {
+    "": { "name": "demo" },
+    "node_modules/react": { "version": "18.3.1", "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz" },
+    "node_modules/left-pad": { "version": "1.3.0", "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz" },
+    "node_modules/@acme/utils": { "version": "2.0.1", "resolved": "https://registry.npmjs.org/@acme/utils/-/utils-2.0.1.tgz" },
+    "node_modules/@acme/utils/node_modules/left-pad": { "version": "1.1.0", "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-1.1.0.tgz" },
+    "node_modules/reactt": { "version": "1.0.0", "resolved": "https://registry.npmjs.org/reactt/-/reactt-1.0.0.tgz" },
+    "node_modules/git-thing": { "version": "0.1.0", "resolved": "git+ssh://git@github.com/someone/git-thing.git#abc123" },
+    "packages/local": { "version": "0.0.1" },
+    "node_modules/local": { "link": true, "resolved": "packages/local" }
+  }
+}

