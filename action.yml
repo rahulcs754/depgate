@@ -8,8 +8,8 @@ inputs:
     description: Token used to read the base lockfile and post the PR comment.
     default: ${{ github.token }}
   lockfile:
-    description: Path to package-lock.json.
-    default: package-lock.json
+    description: Path to package-lock.json, pnpm-lock.yaml or yarn.lock. Found automatically when empty.
+    required: false
   config:
     description: Path to the DepGate config file.
     default: .depgate.json
