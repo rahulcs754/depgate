@@ -3,13 +3,14 @@ import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { runCheck } from "./check.js";
 import { loadConfig } from "./config.js";
+import { findLockfile } from "./lockfile.js";
 import { createRegistryClient } from "./registry.js";
 import { COMMENT_MARKER, renderReport } from "./report.js";
 import { createTarballClient } from "./tarball.js";
 import type { Severity } from "./types.js";
 
 async function run(): Promise<void> {
-  const lockPath = core.getInput("lockfile") || "package-lock.json";
+  const lockPath = core.getInput("lockfile") || findLockfile();
   const token = core.getInput("github-token", { required: true });
   const config = loadConfig(core.getInput("config") || ".depgate.json");
   const failOn = core.getInput("fail-on");

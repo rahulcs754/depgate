@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { runCheck } from "./check.js";
 import { loadConfig } from "./config.js";
+import { findLockfile } from "./lockfile.js";
 import { createRegistryClient } from "./registry.js";
 import { renderReport } from "./report.js";
 import { createTarballClient } from "./tarball.js";
@@ -13,23 +14,24 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     base: { type: "string", default: "main" },
-    head: { type: "string", default: "package-lock.json" },
+    head: { type: "string" },
     config: { type: "string", default: ".depgate.json" },
     strict: { type: "boolean", default: false },
   },
 });
 
 if (positionals.length > 0 && positionals[0] !== "check") {
-  console.error("Usage: depgate check [--base <git ref or lockfile>] [--head package-lock.json] [--config .depgate.json] [--strict]");
+  console.error("Usage: depgate check [--base <git ref or lockfile>] [--head <lockfile>] [--config .depgate.json] [--strict]");
   process.exit(2);
 }
 
+const headPath = values.head ?? findLockfile();
 const config = loadConfig(values.config);
 if (values.strict) config.failOn = "medium" satisfies Severity;
 
 const result = await runCheck({
-  baseLock: readBase(values.base!, values.head!),
-  headLock: readFileSync(values.head!, "utf8"),
+  baseLock: readBase(values.base!, headPath),
+  headLock: readFileSync(headPath, "utf8"),
   config,
   fetchPackument: createRegistryClient(),
   fetchTarball: createTarballClient(),

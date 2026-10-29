@@ -7,7 +7,7 @@ DepGate: a TypeScript CLI + GitHub Action that diffs lockfiles in a PR and flags
 Node 20+ (CI on 22), ESM, TypeScript strict. @actions/core + @actions/github, bundled with tsup into `dist/`. Vitest. No AI in the MVP.
 
 ## Layout
-- `src/lockfile.ts`: parse + diff npm lockfiles (v2/v3)
+- `src/lockfile.ts`: parse + diff lockfiles (npm v2/v3, pnpm v5/v6/v9, yarn v1/Berry)
 - `src/registry.ts`: npm registry client with cache, `mapLimit`
 - `src/signals/index.ts`: registry risk signals, pure functions `(ctx) => Finding | null`
 - `src/signals/code.ts`: code-scan signals over package files (new/changed code only)
