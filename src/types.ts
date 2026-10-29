@@ -35,6 +35,7 @@ export interface PackumentVersion {
   scripts?: Record<string, string>;
   maintainers?: Array<{ name: string; email?: string }>;
   _npmUser?: { name: string; email?: string };
+  dist?: { tarball?: string };
 }
 
 export interface Config {
@@ -43,6 +44,10 @@ export interface Config {
   newPackageDays: number;
   /** Entries like "left-pad" or "left-pad@1.3.0" that are never flagged. */
   allow: string[];
+  /** Download and read package files to look for hidden code. */
+  scanCode: boolean;
+  /** Most packages whose files are downloaded per run. */
+  maxCodeScans: number;
 }
 
 export const defaultConfig: Config = {
@@ -50,4 +55,6 @@ export const defaultConfig: Config = {
   minAgeHours: 72,
   newPackageDays: 30,
   allow: [],
+  scanCode: true,
+  maxCodeScans: 40,
 };

@@ -1,4 +1,6 @@
 import type { Change, Config, Finding, Packument } from "../types.js";
+import type { PackageFiles } from "../tarball.js";
+import { codeSignals } from "./code.js";
 import { POPULAR } from "./popular.js";
 
 export interface SignalContext {
@@ -6,6 +8,8 @@ export interface SignalContext {
   packument: Packument | null;
   config: Config;
   now: Date;
+  /** Package files, when the code scan downloaded them. */
+  files?: { current: PackageFiles; previous?: PackageFiles };
 }
 
 export type Signal = (ctx: SignalContext) => Finding | null;
@@ -114,6 +118,7 @@ export const allSignals: Signal[] = [
   maintainersChanged,
   nonRegistrySource,
   deprecated,
+  ...codeSignals,
 ];
 
 function isRegistryResolved(resolved: string | undefined): boolean {
