@@ -6,6 +6,7 @@ import { runCheck } from "./check.js";
 import { loadConfig } from "./config.js";
 import { createRegistryClient } from "./registry.js";
 import { renderReport } from "./report.js";
+import { createTarballClient } from "./tarball.js";
 import type { Severity } from "./types.js";
 
 const { values, positionals } = parseArgs({
@@ -31,6 +32,7 @@ const result = await runCheck({
   headLock: readFileSync(values.head!, "utf8"),
   config,
   fetchPackument: createRegistryClient(),
+  fetchTarball: createTarballClient(),
 });
 console.log(renderReport(result));
 process.exit(result.failed ? 1 : 0);

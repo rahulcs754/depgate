@@ -2,16 +2,16 @@
 
 A PR gate for **risky npm dependencies**. It checks every new or updated package in your lockfile for signs of a hijack before it reaches `main` or your CI secrets.
 
-It never installs or runs the packages. It only reads the lockfile and npm registry metadata.
+It never installs or runs the packages. It only reads the lockfile, npm registry metadata and the package files (in memory).
 
-> Status: v0.1 (metadata checks, `package-lock.json`). Tarball scanning and pnpm/yarn are next. See [docs/MVP-PLAN.md](docs/MVP-PLAN.md).
+> Status: v0.2 (registry checks + package code scan, `package-lock.json`). pnpm/yarn are next. See [docs/MVP-PLAN.md](docs/MVP-PLAN.md).
 
 ## Why
 - On 19 May 2026 a Shai-Hulud worm wave published 639 malicious versions across 323 npm packages in one hour.
 - It stole GitHub, npm, cloud and CI tokens, re-published the victims' own packages, and planted backdoors in editor and AI agent config files.
 - `npm audit` and Dependabot only know about published CVEs, so they miss fresh malware.
 
-## What it checks (v0.1)
+## What it checks
 
 | Check | Risk |
 | --- | --- |
@@ -25,6 +25,15 @@ It never installs or runs the packages. It only reads the lockfile and npm regis
 | Install script on a newly added package | Medium |
 | Installed from git or a tarball URL instead of the registry | Medium |
 | Deprecated version | Low |
+
+**Code scan.** For updated packages (and new ones with install scripts), DepGate downloads the old and new tarballs from the npm registry and compares the JS files. Only code that is new in this version counts:
+
+| Check | Risk |
+| --- | --- |
+| A changed file reads tokens (`NPM_TOKEN`, `GITHUB_TOKEN`, `.npmrc`, AWS keys...) and makes network calls | High |
+| `eval` / `Function` run on decoded data (`atob`, `Buffer.from`...) | High |
+| The file an install script runs starts processes, calls the network or reads tokens (for unchanged scripts, only new behaviour counts) | High |
+| Obfuscated code (`_0x…` names) or a large encoded string in a new file | Medium |
 
 ## GitHub Action
 
@@ -76,6 +85,8 @@ Optional `.depgate.json` in the repo root (see [examples/.depgate.json](examples
   "failOn": "high",
   "minAgeHours": 72,
   "newPackageDays": 30,
+  "scanCode": true,
+  "maxCodeScans": 40,
   "allow": ["my-internal-pkg", "esbuild@0.24.0"]
 }
 ```
