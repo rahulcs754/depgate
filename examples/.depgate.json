@@ -1,0 +1,6 @@
+{
+  "failOn": "high",
+  "minAgeHours": 72,
+  "newPackageDays": 30,
+  "allow": ["my-internal-pkg@1.2.3"]
+}

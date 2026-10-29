@@ -1,0 +1,23 @@
+// Most-depended-on npm packages, used for the typosquat check. Extend as needed (v0.2: load top 1000).
+export const POPULAR = new Set([
+  "react", "react-dom", "next", "vue", "svelte", "angular", "preact", "solid-js", "express", "fastify", "koa",
+  "lodash", "underscore", "axios", "node-fetch", "chalk", "commander", "yargs", "debug", "dotenv", "uuid",
+  "moment", "dayjs", "date-fns", "classnames", "clsx", "prop-types", "typescript", "eslint", "prettier",
+  "webpack", "vite", "rollup", "esbuild", "babel-loader", "jest", "vitest", "mocha", "chai", "sinon",
+  "tslib", "rxjs", "zod", "yup", "joi", "ajv", "semver", "glob", "minimatch", "rimraf", "mkdirp", "fs-extra",
+  "chokidar", "cross-env", "nodemon", "concurrently", "husky", "lint-staged", "tailwindcss", "postcss",
+  "autoprefixer", "sass", "less", "styled-components", "emotion", "redux", "react-redux", "zustand", "mobx",
+  "jotai", "recoil", "immer", "react-router", "react-router-dom", "react-query", "swr", "graphql",
+  "apollo-client", "mongoose", "sequelize", "prisma", "typeorm", "knex", "pg", "mysql", "mysql2", "redis",
+  "ioredis", "socket.io", "ws", "jsonwebtoken", "bcrypt", "bcryptjs", "passport", "cors", "helmet",
+  "body-parser", "cookie-parser", "multer", "morgan", "winston", "pino", "bluebird", "async", "colors",
+  "inquirer", "ora", "execa", "cheerio", "puppeteer", "playwright", "sharp", "jquery", "bootstrap",
+  "core-js", "regenerator-runtime", "whatwg-fetch", "qs", "ms", "nanoid", "cross-spawn", "which", "kleur",
+  "picocolors", "ansi-styles", "supports-color", "strip-ansi", "string-width", "wrap-ansi", "escape-string-regexp",
+  "is-number", "isarray", "inherits", "safe-buffer", "readable-stream", "through2", "event-stream", "minimist",
+  "browserslist", "caniuse-lite", "electron", "nx", "turbo", "lerna", "storybook", "framer-motion",
+  "three", "d3", "chart.js", "recharts", "socket.io-client", "form-data", "formik", "react-hook-form",
+  "i18next", "react-i18next", "marked", "highlight.js", "prismjs", "validator", "xml2js", "yaml", "js-yaml",
+  "handlebars", "ejs", "pug", "mustache", "nock", "supertest", "cypress", "ts-node", "tsx", "nodemailer",
+  "stripe", "firebase", "aws-sdk", "openai", "dotenv-expand", "node-gyp", "nan", "bindings", "web-vitals",
+]);

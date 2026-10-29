@@ -39,3 +39,10 @@ TypeScript (Node 22, ESM), @pnpm/lockfile-file, @yarnpkg/lockfile, tar, commande
 ## Later
 - Local `depgate doctor` that looks for known worm traces in `~/.npmrc`, VS Code and agent config files
 - PyPI support
+
+## Progress
+- [x] v0.1: `package-lock.json` diff, registry metadata checks (fresh version, new package, install scripts incl. `curl`/`wget`/`child_process`, publisher change, typosquat, non-registry source, deprecated), allowlist, PR comment, GitHub Action, CLI `check --base <ref>`
+- [ ] Tarball download + entropy / `eval` checks
+- [ ] pnpm and yarn lockfiles
+- [ ] Weekly downloads for the "new package" check
+- [ ] Replay the May 2026 incident for the README demo
