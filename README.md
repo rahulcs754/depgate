@@ -4,7 +4,7 @@ A PR gate for **risky npm dependencies**. It checks every new or updated package
 
 It never installs or runs the packages. It only reads the lockfile, npm registry metadata and the package files (in memory).
 
-> Status: v0.2 (registry checks + package code scan, `package-lock.json`). pnpm/yarn are next. See [docs/MVP-PLAN.md](docs/MVP-PLAN.md).
+> Status: v0.3: registry checks + package code scan for `package-lock.json`, `pnpm-lock.yaml` and `yarn.lock` (v1 and Berry). See [docs/MVP-PLAN.md](docs/MVP-PLAN.md).
 
 ## Why
 - On 19 May 2026 a Shai-Hulud worm wave published 639 malicious versions across 323 npm packages in one hour.
@@ -42,7 +42,7 @@ It never installs or runs the packages. It only reads the lockfile, npm registry
 name: DepGate
 on:
   pull_request:
-    paths: ["package-lock.json"]
+    paths: ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
 permissions:
   contents: read
   pull-requests: write
@@ -69,7 +69,7 @@ Example comment:
 
 ```bash
 npm ci && npm run build
-node dist/cli.js check --base main          # compare package-lock.json with main
+node dist/cli.js check --base main          # compare your lockfile with main (found automatically)
 node dist/cli.js check --base main --strict # also fail on Medium
 node dist/cli.js check --base old-lock.json # or compare with a file
 ```

@@ -15,7 +15,8 @@
   "license": "MIT",
   "dependencies": {
     "@actions/core": "^1.11.1",
-    "@actions/github": "^6.0.1"
+    "@actions/github": "^6.0.1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

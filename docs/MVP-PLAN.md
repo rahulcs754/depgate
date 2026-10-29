@@ -43,6 +43,6 @@ TypeScript (Node 22, ESM), @pnpm/lockfile-file, @yarnpkg/lockfile, tar, commande
 ## Progress
 - [x] v0.1: `package-lock.json` diff, registry metadata checks (fresh version, new package, install scripts incl. `curl`/`wget`/`child_process`, publisher change, typosquat, non-registry source, deprecated), allowlist, PR comment, GitHub Action, CLI `check --base <ref>`
 - [x] v0.2: tarball download + code scan (token access + network, `eval` of decoded data, install script behaviour, obfuscation), only for code new in the version
-- [ ] pnpm and yarn lockfiles
+- [x] v0.3: pnpm (v5/v6/v9) and yarn (v1 and Berry) lockfiles, lockfile found automatically
 - [ ] Weekly downloads for the "new package" check
 - [ ] Replay the May 2026 incident for the README demo
