@@ -2,5 +2,7 @@
   "failOn": "high",
   "minAgeHours": 72,
   "newPackageDays": 30,
+  "scanCode": true,
+  "maxCodeScans": 40,
   "allow": ["my-internal-pkg@1.2.3"]
 }

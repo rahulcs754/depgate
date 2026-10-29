@@ -5,6 +5,7 @@ import { runCheck } from "./check.js";
 import { loadConfig } from "./config.js";
 import { createRegistryClient } from "./registry.js";
 import { COMMENT_MARKER, renderReport } from "./report.js";
+import { createTarballClient } from "./tarball.js";
 import type { Severity } from "./types.js";
 
 async function run(): Promise<void> {
@@ -25,7 +26,13 @@ async function run(): Promise<void> {
   const baseLock = await readFileAtRef(octokit, owner, repo, lockPath, pr.base.sha as string);
   const headLock = readFileSync(lockPath, "utf8");
 
-  const result = await runCheck({ baseLock, headLock, config, fetchPackument: createRegistryClient() });
+  const result = await runCheck({
+    baseLock,
+    headLock,
+    config,
+    fetchPackument: createRegistryClient(),
+    fetchTarball: createTarballClient(),
+  });
   const body = renderReport(result);
   await core.summary.addRaw(body).write();
 

@@ -23954,7 +23954,9 @@ var defaultConfig = {
   failOn: "high",
   minAgeHours: 72,
   newPackageDays: 30,
-  allow: []
+  allow: [],
+  scanCode: true,
+  maxCodeScans: 40
 };
 
 // src/config.ts
@@ -24021,12 +24023,122 @@ async function mapLimit(items, limit, fn) {
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (next < items.length) {
       const i = next++;
-      out[i] = await fn(items[i]);
+      out[i] = await fn(items[i], i);
     }
   });
   await Promise.all(workers);
   return out;
 }
+
+// src/signals/code.ts
+var INSTALL_HOOKS = ["preinstall", "install", "postinstall"];
+var TOKEN_NAMES = /\b(NPM_TOKEN|NODE_AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN|AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|AZURE_CLIENT_SECRET|GOOGLE_APPLICATION_CREDENTIALS)\b|\.npmrc\b/;
+var NETWORK = /\b(https?\.request|https?\.get|fetch\s*\(|XMLHttpRequest|axios|net\.connect|dns\.resolve)/;
+var PROCESS = /\bchild_process\b|\b(execSync|spawnSync|execFile)\s*\(/;
+var EVAL_DECODED = /\b(eval|Function)\s*\(\s*(atob|Buffer\.from|decodeURIComponent|unescape|String\.fromCharCode)\s*\(/;
+var OBFUSCATOR_NAME = /\b_0x[0-9a-f]{4,6}\b/g;
+var LONG_BASE64 = /["'`][A-Za-z0-9+/=]{5000,}["'`]/;
+function changedFiles(ctx) {
+  const files = ctx.files;
+  if (!files) return [];
+  return [...files.current].filter(([path, text]) => /\.(c|m)?js$/.test(path) && files.previous?.get(path) !== text).map(([path, text]) => [path, text, files.previous?.get(path) ?? ""]);
+}
+function finding(ctx, f) {
+  return { name: ctx.change.name, version: ctx.change.version, ...f };
+}
+function snippet(text, index) {
+  const s = text.slice(index, index + 80).replace(/\s+/g, " ").trim();
+  return s.length > 60 ? `${s.slice(0, 59)}\u2026` : s;
+}
+var credentialAccess = (ctx) => {
+  for (const [path, text, previous] of changedFiles(ctx)) {
+    const token = TOKEN_NAMES.exec(text);
+    if (token && NETWORK.test(text) && !TOKEN_NAMES.test(previous)) {
+      return finding(ctx, {
+        severity: "high",
+        signal: "credential-access",
+        reason: `\`${path}\` reads \`${token[0]}\` and makes network calls`
+      });
+    }
+  }
+  return null;
+};
+var evalDecoded = (ctx) => {
+  for (const [path, text, previous] of changedFiles(ctx)) {
+    const m = EVAL_DECODED.exec(text);
+    if (m && !EVAL_DECODED.test(previous)) {
+      return finding(ctx, {
+        severity: "high",
+        signal: "eval-decoded",
+        reason: `\`${path}\` runs decoded code: \`${snippet(text, m.index)}\``
+      });
+    }
+  }
+  return null;
+};
+var obfuscated = (ctx) => {
+  for (const [path, text, previous] of changedFiles(ctx)) {
+    if (previous && (previous.match(OBFUSCATOR_NAME)?.length ?? 0) > 0) continue;
+    const names = new Set(text.match(OBFUSCATOR_NAME) ?? []);
+    if (names.size >= 10) {
+      return finding(ctx, {
+        severity: "medium",
+        signal: "obfuscated-code",
+        reason: `\`${path}\` looks obfuscated (${names.size} \`_0x\u2026\` names)`
+      });
+    }
+    if (!ctx.files?.previous?.has(path) && LONG_BASE64.test(text)) {
+      return finding(ctx, {
+        severity: "medium",
+        signal: "obfuscated-code",
+        reason: `New file \`${path}\` has a large encoded string`
+      });
+    }
+  }
+  return null;
+};
+function installScriptFiles(scripts, only) {
+  const out = [];
+  for (const hook2 of only ?? INSTALL_HOOKS) {
+    for (const part of (scripts?.[hook2] ?? "").split(/&&|\|\||;/)) {
+      const [cmd, ...args] = part.trim().split(/\s+/);
+      const file = cmd === "node" ? args.find((a) => !a.startsWith("-")) : void 0;
+      if (!file) continue;
+      const path = file.replace(/^["']|["']$/g, "").replace(/^\.\//, "");
+      out.push(/\.(c|m)?js$/.test(path) ? path : `${path}.js`);
+    }
+  }
+  return out;
+}
+function capabilities(text) {
+  return [
+    PROCESS.test(text) && "starts processes",
+    NETWORK.test(text) && "makes network calls",
+    TOKEN_NAMES.test(text) && "reads tokens"
+  ].filter((c) => typeof c === "string");
+}
+var installScriptCode = (ctx) => {
+  const versions = ctx.packument?.versions;
+  const scripts = versions?.[ctx.change.version]?.scripts;
+  const prevScripts = ctx.change.previous ? versions?.[ctx.change.previous]?.scripts : void 0;
+  for (const hook2 of INSTALL_HOOKS) {
+    const hookIsNew = scripts?.[hook2] !== prevScripts?.[hook2];
+    for (const path of installScriptFiles(scripts, [hook2])) {
+      const text = ctx.files?.current.get(path);
+      if (!text) continue;
+      const before = hookIsNew ? [] : capabilities(ctx.files?.previous?.get(path) ?? "");
+      const what = capabilities(text).filter((c) => !before.includes(c));
+      if (what.length === 0) continue;
+      return finding(ctx, {
+        severity: ctx.change.previous ? "high" : "medium",
+        signal: "install-script-code",
+        reason: `Install script \`${path}\` ${what.join(", ")}${hookIsNew ? "" : " (new in this version)"}`
+      });
+    }
+  }
+  return null;
+};
+var codeSignals = [credentialAccess, evalDecoded, installScriptCode, obfuscated];
 
 // src/signals/popular.ts
 var POPULAR = /* @__PURE__ */ new Set([
@@ -24216,18 +24328,18 @@ var POPULAR = /* @__PURE__ */ new Set([
 
 // src/signals/index.ts
 var HOUR = 36e5;
-var INSTALL_HOOKS = ["preinstall", "install", "postinstall"];
+var INSTALL_HOOKS2 = ["preinstall", "install", "postinstall"];
 var DANGEROUS = /\b(curl|wget|child_process|eval|powershell|bash|sh)\b|node -e/;
-function finding(ctx, f) {
+function finding2(ctx, f) {
   return { name: ctx.change.name, version: ctx.change.version, ...f };
 }
-var notOnRegistry = (ctx) => ctx.packument || !isRegistryResolved(ctx.change.resolved) ? null : finding(ctx, { severity: "high", signal: "not-found", reason: "Not found on the npm registry" });
+var notOnRegistry = (ctx) => ctx.packument || !isRegistryResolved(ctx.change.resolved) ? null : finding2(ctx, { severity: "high", signal: "not-found", reason: "Not found on the npm registry" });
 var freshVersion = (ctx) => {
   const published = ctx.packument?.time?.[ctx.change.version];
   if (!published) return null;
   const ageHours = (ctx.now.getTime() - Date.parse(published)) / HOUR;
   if (ageHours >= ctx.config.minAgeHours) return null;
-  return finding(ctx, {
+  return finding2(ctx, {
     severity: "high",
     signal: "fresh-version",
     reason: `Version published ${Math.max(0, Math.round(ageHours))}h ago (under ${ctx.config.minAgeHours}h)`
@@ -24238,7 +24350,7 @@ var newPackage = (ctx) => {
   if (!created) return null;
   const ageDays = (ctx.now.getTime() - Date.parse(created)) / (24 * HOUR);
   if (ageDays >= ctx.config.newPackageDays) return null;
-  return finding(ctx, {
+  return finding2(ctx, {
     severity: "high",
     signal: "new-package",
     reason: `Package first published ${Math.floor(ageDays)} days ago`
@@ -24247,12 +24359,12 @@ var newPackage = (ctx) => {
 var installScripts = (ctx) => {
   const current = ctx.packument?.versions[ctx.change.version]?.scripts ?? {};
   const prev = ctx.change.previous ? ctx.packument?.versions[ctx.change.previous]?.scripts ?? {} : {};
-  const added = INSTALL_HOOKS.filter((h) => current[h] && current[h] !== prev[h]);
+  const added = INSTALL_HOOKS2.filter((h) => current[h] && current[h] !== prev[h]);
   if (added.length === 0) return null;
   const script = current[added[0]];
   const danger = DANGEROUS.exec(script)?.[0];
   const what = ctx.change.previous ? `New or changed ${added.join(", ")} script` : `Has ${added.join(", ")} script`;
-  return finding(ctx, {
+  return finding2(ctx, {
     severity: ctx.change.previous || danger ? "high" : "medium",
     signal: "install-script",
     reason: `${what}${danger ? ` that runs \`${danger}\`` : ""}: \`${truncate(script, 60)}\``
@@ -24272,26 +24384,26 @@ var maintainersChanged = (ctx) => {
   const parts = [];
   if (added.length) parts.push(`new maintainer(s): ${added.join(", ")}`);
   if (newPublisher) parts.push(`published by ${publisher}, not a previous maintainer`);
-  return finding(ctx, { severity: "medium", signal: "maintainer-change", reason: capitalize(parts.join("; ")) });
+  return finding2(ctx, { severity: "medium", signal: "maintainer-change", reason: capitalize(parts.join("; ")) });
 };
 var typosquat = (ctx) => {
   const { name } = ctx.change;
   if (name.length < 4 || POPULAR.has(name)) return null;
   for (const target of POPULAR) {
     if (Math.abs(target.length - name.length) <= 1 && editDistance(name, target) === 1) {
-      return finding(ctx, { severity: "high", signal: "typosquat", reason: `Name is one letter away from \`${target}\`` });
+      return finding2(ctx, { severity: "high", signal: "typosquat", reason: `Name is one letter away from \`${target}\`` });
     }
   }
   return null;
 };
-var nonRegistrySource = (ctx) => isRegistryResolved(ctx.change.resolved) ? null : finding(ctx, {
+var nonRegistrySource = (ctx) => isRegistryResolved(ctx.change.resolved) ? null : finding2(ctx, {
   severity: "medium",
   signal: "non-registry-source",
   reason: `Installed from ${truncate(ctx.change.resolved, 60)}, not registry.npmjs.org`
 });
 var deprecated = (ctx) => {
   const msg = ctx.packument?.versions[ctx.change.version]?.deprecated;
-  return msg ? finding(ctx, { severity: "low", signal: "deprecated", reason: `Deprecated: ${truncate(msg, 80)}` }) : null;
+  return msg ? finding2(ctx, { severity: "low", signal: "deprecated", reason: `Deprecated: ${truncate(msg, 80)}` }) : null;
 };
 var allSignals = [
   notOnRegistry,
@@ -24301,7 +24413,8 @@ var allSignals = [
   installScripts,
   maintainersChanged,
   nonRegistrySource,
-  deprecated
+  deprecated,
+  ...codeSignals
 ];
 function isRegistryResolved(resolved) {
   return !resolved || resolved.startsWith("https://registry.npmjs.org/");
@@ -24334,14 +24447,43 @@ async function runCheck(opts) {
   const changes = diffLockfiles(base, parseLockfile(opts.headLock)).filter(
     (c) => !isAllowed(c.name, c.version, opts.config.allow)
   );
-  const perChange = await mapLimit(changes, 8, async (change) => {
-    const packument = isRegistry(change.resolved) ? await opts.fetchPackument(change.name) : null;
-    return allSignals.map((signal) => signal({ change, packument, config: opts.config, now })).filter((f) => f !== null);
+  const packuments = await mapLimit(
+    changes,
+    8,
+    (change) => isRegistry(change.resolved) ? opts.fetchPackument(change.name) : Promise.resolve(null)
+  );
+  const toScan = new Set(
+    opts.fetchTarball && opts.config.scanCode ? codeScanCandidates(changes, packuments).slice(0, opts.config.maxCodeScans) : []
+  );
+  const perChange = await mapLimit(changes, 8, async (change, i) => {
+    const packument = packuments[i] ?? null;
+    const ctx = { change, packument, config: opts.config, now };
+    if (packument && toScan.has(i)) ctx.files = await downloadFiles(opts.fetchTarball, packument, change);
+    return allSignals.map((signal) => signal(ctx)).filter((f) => f !== null);
   });
   const findings = perChange.flat().sort((a, b) => RANK[b.severity] - RANK[a.severity] || a.name.localeCompare(b.name));
   const failOn = opts.config.failOn;
   const failed = failOn !== "none" && findings.some((f) => RANK[f.severity] >= RANK[failOn]);
   return { changes, findings, failed };
+}
+function codeScanCandidates(changes, packuments) {
+  const hasHook = (p, v) => !!v && ["preinstall", "install", "postinstall"].some((h) => p?.versions[v]?.scripts?.[h]);
+  const scored = changes.flatMap((c, i) => {
+    const p = packuments[i] ?? null;
+    if (!p?.versions[c.version]?.dist?.tarball) return [];
+    const now = hasHook(p, c.version);
+    if (c.previous) return [{ i, rank: now && !hasHook(p, c.previous) ? 0 : 1 }];
+    return now ? [{ i, rank: 2 }] : [];
+  });
+  return scored.sort((a, b) => a.rank - b.rank || a.i - b.i).map((s) => s.i);
+}
+async function downloadFiles(fetchTarball, packument, change) {
+  const url = (v) => v ? packument.versions[v]?.dist?.tarball : void 0;
+  const [current, previous] = await Promise.all([
+    fetchTarball(url(change.version)),
+    url(change.previous) ? fetchTarball(url(change.previous)) : Promise.resolve(null)
+  ]);
+  return current ? { current, previous: previous ?? void 0 } : void 0;
 }
 function isRegistry(resolved) {
   return !resolved || resolved.startsWith("https://registry.npmjs.org/");
@@ -24377,6 +24519,58 @@ function escapeCell(s) {
   return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
+// src/tarball.ts
+import { gunzipSync } from "zlib";
+var REGISTRY2 = "https://registry.npmjs.org/";
+var MAX_TARBALL_BYTES = 30 * 1024 * 1024;
+var MAX_FILE_BYTES = 2 * 1024 * 1024;
+var TEXT_FILE = /\.(c|m)?js$|\.json$|\.sh$|\.ts$/;
+function createTarballClient(fetchImpl = fetch) {
+  return async (url) => {
+    if (!url.startsWith(REGISTRY2)) return null;
+    const res = await fetchImpl(url);
+    if (!res.ok) return null;
+    const size = Number(res.headers.get("content-length") ?? 0);
+    if (size > MAX_TARBALL_BYTES) return null;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return buf.byteLength > MAX_TARBALL_BYTES ? null : readTarball(buf);
+  };
+}
+function readTarball(tgz) {
+  const tar = gunzipSync(tgz);
+  const files = /* @__PURE__ */ new Map();
+  let offset = 0;
+  let longName;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((b) => b === 0)) break;
+    const size = parseInt(cString(header, 124, 12).trim() || "0", 8);
+    const type = String.fromCharCode(header[156] ?? 0);
+    const prefix = cString(header, 345, 155);
+    const body = tar.subarray(offset + 512, offset + 512 + size);
+    offset += 512 + Math.ceil(size / 512) * 512;
+    if (type === "L") {
+      longName = cString(body, 0, body.length);
+      continue;
+    }
+    if (type === "x") {
+      longName = /\d+ path=([^\n]+)\n/.exec(body.toString())?.[1] ?? longName;
+      continue;
+    }
+    const name = longName ?? (prefix ? `${prefix}/` : "") + cString(header, 0, 100);
+    longName = void 0;
+    if (type !== "0" && type !== "\0" || size > MAX_FILE_BYTES) continue;
+    const path = name.replace(/^[^/]+\//, "");
+    if (TEXT_FILE.test(path)) files.set(path, body.toString("utf8"));
+  }
+  return files;
+}
+function cString(buf, start, length) {
+  const slice = buf.subarray(start, start + length);
+  const end = slice.indexOf(0);
+  return Buffer.from(end === -1 ? slice : slice.subarray(0, end)).toString("utf8");
+}
+
 // src/main.ts
 async function run() {
   const lockPath = core.getInput("lockfile") || "package-lock.json";
@@ -24393,7 +24587,13 @@ async function run() {
   const { owner, repo } = github.context.repo;
   const baseLock = await readFileAtRef(octokit, owner, repo, lockPath, pr.base.sha);
   const headLock = readFileSync2(lockPath, "utf8");
-  const result = await runCheck({ baseLock, headLock, config, fetchPackument: createRegistryClient() });
+  const result = await runCheck({
+    baseLock,
+    headLock,
+    config,
+    fetchPackument: createRegistryClient(),
+    fetchTarball: createTarballClient()
+  });
   const body = renderReport(result);
   await core.summary.addRaw(body).write();
   if (result.changes.length > 0 || await findComment(octokit, owner, repo, pr.number) !== void 0) {

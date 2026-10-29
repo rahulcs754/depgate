@@ -9,14 +9,16 @@ Node 20+ (CI on 22), ESM, TypeScript strict. @actions/core + @actions/github, bu
 ## Layout
 - `src/lockfile.ts`: parse + diff npm lockfiles (v2/v3)
 - `src/registry.ts`: npm registry client with cache, `mapLimit`
-- `src/signals/index.ts`: risk signals, pure functions `(ctx) => Finding | null`
+- `src/signals/index.ts`: registry risk signals, pure functions `(ctx) => Finding | null`
+- `src/signals/code.ts`: code-scan signals over package files (new/changed code only)
+- `src/tarball.ts`: download a registry tarball and read its text files in memory (no disk, no execution)
 - `src/check.ts`: runs diff + signals, decides pass/fail
 - `src/report.ts`: Markdown PR comment
 - `src/main.ts`: GitHub Action entry; `src/cli.ts`: CLI entry
 - `test/fixtures/`: recorded lockfiles and registry responses
 
 ## Rules
-- NEVER run `npm install` or any install script of a package under review. Only read metadata (and later tarballs).
+- NEVER run `npm install` or any install script of a package under review. Only read metadata and tarball contents in memory.
 - Tests use recorded registry responses. No network in tests.
 - The GitHub Action needs only `contents: read` and `pull-requests: write`. No secrets.
 - Every finding names the package, version, check and a plain-English reason.
