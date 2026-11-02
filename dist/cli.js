@@ -6346,15 +6346,15 @@ var require_parser = __commonJS({
     var node_process = __require("process");
     var cst = require_cst();
     var lexer = require_lexer();
-    function includesToken(list, type) {
-      for (let i = 0; i < list.length; ++i)
-        if (list[i].type === type)
+    function includesToken(list2, type) {
+      for (let i = 0; i < list2.length; ++i)
+        if (list2[i].type === type)
           return true;
       return false;
     }
-    function findNonEmptyIndex(list) {
-      for (let i = 0; i < list.length; ++i) {
-        switch (list[i].type) {
+    function findNonEmptyIndex(list2) {
+      for (let i = 0; i < list2.length; ++i) {
+        switch (list2[i].type) {
           case "space":
           case "comment":
           case "newline":
@@ -7364,8 +7364,60 @@ var require_dist = __commonJS({
 
 // src/cli.ts
 import { execFileSync } from "child_process";
-import { existsSync as existsSync3, readFileSync as readFileSync2 } from "fs";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
 import { parseArgs } from "util";
+
+// src/alerts.ts
+async function fetchAlerts(opts) {
+  const api = opts.apiUrl ?? "https://api.github.com";
+  const f = opts.fetchImpl ?? fetch;
+  const get = async (url) => {
+    const res = await f(url, {
+      headers: { accept: "application/vnd.github+json", authorization: `Bearer ${opts.token}`, "x-github-api-version": "2022-11-28" }
+    });
+    if (!res.ok) {
+      const hint = res.status === 403 || res.status === 404 ? " Give the workflow `security-events: read`, or pass a token with Dependabot alerts read access as `alerts-token`." : "";
+      throw new Error(`GitHub API ${new URL(url).pathname} returned ${res.status}.${hint}`);
+    }
+    return res.json();
+  };
+  const raw = [];
+  for (let page = 1; page <= 10; page++) {
+    const batch = await get(`${api}/repos/${opts.owner}/${opts.repo}/dependabot/alerts?state=open&ecosystem=npm&per_page=100&page=${page}`);
+    raw.push(...batch);
+    if (batch.length < 100) break;
+  }
+  const functions = /* @__PURE__ */ new Map();
+  const fnsFor = (ghsa) => {
+    let p = functions.get(ghsa);
+    if (!p) {
+      p = get(`${api}/advisories/${ghsa}`).then((adv) => {
+        const out = {};
+        for (const v of adv.vulnerabilities ?? []) if (v.package?.name) out[v.package.name] = v.vulnerable_functions ?? [];
+        return out;
+      }).catch(() => ({}));
+      functions.set(ghsa, p);
+    }
+    return p;
+  };
+  return Promise.all(raw.map(async (a) => toAlert(a, (await fnsFor(a.security_advisory?.ghsa_id ?? ""))[a.dependency?.package?.name] ?? [])));
+}
+function toAlert(a, functions = []) {
+  return {
+    number: a.number,
+    package: a.dependency?.package?.name ?? a.security_vulnerability?.package?.name,
+    severity: a.security_vulnerability?.severity ?? a.security_advisory?.severity ?? "unknown",
+    ghsa: a.security_advisory?.ghsa_id ?? "",
+    summary: a.security_advisory?.summary ?? "",
+    manifest: a.dependency?.manifest_path,
+    scope: a.dependency?.scope ?? null,
+    relationship: a.dependency?.relationship ?? null,
+    vulnerableRange: a.security_vulnerability?.vulnerable_version_range,
+    patched: a.security_vulnerability?.first_patched_version?.identifier,
+    functions: a.vulnerable_functions ?? functions,
+    url: a.html_url
+  };
+}
 
 // src/config.ts
 import { existsSync, readFileSync } from "fs";
@@ -7997,6 +8049,274 @@ function isRegistry(resolved) {
   return !resolved || resolved.startsWith("https://registry.npmjs.org/");
 }
 
+// src/reach.ts
+var import_yaml2 = __toESM(require_dist(), 1);
+import { readdirSync, readFileSync as readFileSync2, statSync } from "fs";
+import { join, relative } from "path";
+var CODE = /\.(c|m)?[jt]sx?$/;
+var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", "dist", "build", "out", ".next", ".nuxt", "coverage", "vendor", ".turbo", ".vercel"]);
+var TEST = /(^|\/)(__tests__|__mocks__|tests?|e2e|cypress|playwright)\/|\.(test|spec|stories)\.[cm]?[jt]sx?$/;
+var isTestFile = (p) => TEST.test(p);
+function readSources(root = ".", maxFiles = 5e3) {
+  const out = [];
+  const walk = (dir) => {
+    let names;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (out.length >= maxFiles) return;
+      if (SKIP_DIRS.has(name)) continue;
+      const full = join(dir, name);
+      const st = statSync(full, { throwIfNoEntry: false });
+      if (!st) continue;
+      if (st.isDirectory()) walk(full);
+      else if (CODE.test(name) && !name.endsWith(".d.ts") && st.size < 1e6) {
+        out.push({ path: relative(root, full).split("\\").join("/"), text: readFileSync2(full, "utf8") });
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+var IMPORT_RE = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["']([^"'\n]+)["']/g;
+function packageOf(spec) {
+  if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("node:") || spec.startsWith("#")) return void 0;
+  const parts = spec.split("/");
+  return spec.startsWith("@") ? parts.length > 1 ? `${parts[0]}/${parts[1]}` : void 0 : parts[0];
+}
+function importsByPackage(files) {
+  const map = /* @__PURE__ */ new Map();
+  for (const f of files) {
+    for (const m of f.text.matchAll(IMPORT_RE)) {
+      const pkg = packageOf(m[1]);
+      if (!pkg) continue;
+      const list2 = map.get(pkg) ?? [];
+      if (!list2.includes(f.path)) list2.push(f.path);
+      map.set(pkg, list2);
+    }
+  }
+  return map;
+}
+function sideOf(file) {
+  if (/^\s*(\/\/[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*["']use client["']/.test(file.text)) return "client";
+  if (/^\s*["']use server["']/.test(file.text) || /(^|\/)(pages\/api|app\/api)\//.test(file.path) || /(^|\/)(route|middleware)\.[jt]s$/.test(file.path)) return "server";
+  if (/(^|\/)app\//.test(file.path)) return "server";
+  return void 0;
+}
+var addEdge = (g, parent, child) => {
+  const set = g.parents.get(child) ?? /* @__PURE__ */ new Set();
+  set.add(parent);
+  g.parents.set(child, set);
+};
+function nameFromKey(key) {
+  const id = key.replace(/^\//, "").replace(/\(.*$/, "");
+  const at = id.lastIndexOf("@");
+  if (at > 0) return id.slice(0, at);
+  const slash = id.lastIndexOf("/");
+  return slash > 0 ? id.slice(0, slash) : id;
+}
+function dependencyGraph(lockText, packageJson) {
+  const g = { direct: /* @__PURE__ */ new Map(), parents: /* @__PURE__ */ new Map(), known: false };
+  const addDirect = (deps, dev) => {
+    for (const name of Object.keys(deps ?? {})) {
+      const prev = g.direct.get(name);
+      g.direct.set(name, { dev: prev ? prev.dev && dev : dev });
+    }
+  };
+  const trimmed = lockText.trimStart();
+  if (trimmed.startsWith("{")) {
+    const raw = JSON.parse(lockText);
+    for (const [path, info] of Object.entries(raw.packages ?? {})) {
+      const idx = path.lastIndexOf("node_modules/");
+      if (idx === -1) {
+        addDirect(info.dependencies, false);
+        addDirect(info.optionalDependencies, false);
+        addDirect(info.devDependencies, true);
+        continue;
+      }
+      const name = info.name ?? path.slice(idx + "node_modules/".length);
+      for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+        for (const child of Object.keys(info[field] ?? {})) {
+          addEdge(g, name, child);
+          g.known = true;
+        }
+      }
+    }
+    return g;
+  }
+  if (/^lockfileVersion:/m.test(lockText)) {
+    const raw = (0, import_yaml2.parse)(lockText) ?? {};
+    const importers = raw.importers ?? { ".": raw };
+    for (const imp of Object.values(importers)) {
+      addDirect(imp.dependencies, false);
+      addDirect(imp.optionalDependencies, false);
+      addDirect(imp.devDependencies, true);
+    }
+    for (const section of [raw.packages, raw.snapshots]) {
+      for (const [key, info] of Object.entries(section ?? {})) {
+        const name = nameFromKey(key);
+        for (const field of ["dependencies", "optionalDependencies"]) {
+          for (const child of Object.keys(info?.[field] ?? {})) {
+            addEdge(g, name, child);
+            g.known = true;
+          }
+        }
+      }
+    }
+    return g;
+  }
+  if (packageJson) {
+    const pkg = JSON.parse(packageJson);
+    addDirect(pkg.dependencies, false);
+    addDirect(pkg.optionalDependencies, false);
+    addDirect(pkg.devDependencies, true);
+  }
+  if (trimmed.includes("# yarn lockfile v1")) {
+    let name;
+    let inDeps = false;
+    for (const line of lockText.split(/\r?\n/)) {
+      if (!line.trim() || line.startsWith("#")) continue;
+      if (!line.startsWith(" ")) {
+        const spec = line.replace(/:$/, "").split(",")[0].trim().replace(/^"|"$/g, "");
+        name = spec.slice(0, spec.lastIndexOf("@") > 0 ? spec.lastIndexOf("@") : void 0);
+        inDeps = false;
+      } else if (/^ {2}\S/.test(line)) {
+        inDeps = /^ {2}(optionalD|d)ependencies:/.test(line);
+      } else if (inDeps && name && /^ {4}\S/.test(line)) {
+        addEdge(g, name, line.trim().split(/\s+/)[0].replace(/^"|"$/g, ""));
+        g.known = true;
+      }
+    }
+  }
+  return g;
+}
+function directParents(g, name) {
+  const seen = /* @__PURE__ */ new Set([name]);
+  const queue = [name];
+  const found = /* @__PURE__ */ new Set();
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const p of g.parents.get(cur) ?? []) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      if (g.direct.has(p)) found.add(p);
+      queue.push(p);
+    }
+  }
+  return [...found].sort();
+}
+var fnName = (f) => f.split(/[.#:]/).pop().replace(/\(.*$/, "");
+function list(items, max = 3) {
+  const shown = items.slice(0, max).map((s) => `\`${s}\``).join(", ");
+  return items.length > max ? `${shown} and ${items.length - max} more` : shown;
+}
+function checkReach(alerts, files, graph) {
+  const imports = importsByPackage(files);
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  const sideFor = (paths) => {
+    const sides = new Set(paths.map((p) => sideOf(byPath.get(p))).filter(Boolean));
+    if (sides.has("client") && sides.has("server")) return "both";
+    return sides.has("client") ? "client" : sides.has("server") ? "server" : void 0;
+  };
+  return alerts.map((alert) => {
+    const name = alert.package;
+    const all = imports.get(name) ?? [];
+    const prod = all.filter((p) => !isTestFile(p));
+    if (alert.scope === "development" || graph.direct.get(name)?.dev) {
+      if (!prod.length) return { alert, reach: "dev-only", evidence: "Dev dependency only. It does not ship to production." };
+    }
+    if (prod.length) {
+      const side = sideFor(prod);
+      const fns = alert.functions.map(fnName).filter(Boolean);
+      if (fns.length) {
+        const hits = [];
+        for (const p of prod) {
+          const lines = byPath.get(p).text.split("\n");
+          lines.forEach((l, i) => {
+            if (fns.some((fn) => new RegExp(`(^|[^\\w$])${fn.replace(/[$]/g, "\\$")}\\s*\\(`).test(l))) hits.push(`${p}:${i + 1}`);
+          });
+        }
+        if (hits.length) return { alert, reach: "called", side, evidence: `Vulnerable function ${list(fns)} called at ${list(hits)}.` };
+        return { alert, reach: "imported-safe", side, evidence: `Imported in ${list(prod)}, but the vulnerable function ${list(fns)} is not called there.` };
+      }
+      return { alert, reach: "imported", side, evidence: `Imported in ${prod.length} file${prod.length > 1 ? "s" : ""}: ${list(prod)}. The advisory does not name the vulnerable function.` };
+    }
+    if (!graph.known && !graph.direct.has(name)) {
+      return { alert, reach: "unknown", evidence: "Transitive, and this lockfile format has no dependency graph to follow." };
+    }
+    const parents = directParents(graph, name);
+    const used = parents.filter((p) => (imports.get(p) ?? []).some((f) => !isTestFile(f)));
+    if (used.length) {
+      const where = used.flatMap((p) => (imports.get(p) ?? []).filter((f) => !isTestFile(f)));
+      return { alert, reach: "via-dependency", side: sideFor(where), evidence: `Pulled in by ${list(used)}, which your code imports (${list(where)}).` };
+    }
+    if (parents.length && parents.every((p) => graph.direct.get(p)?.dev)) {
+      return { alert, reach: "dev-only", evidence: `Only pulled in by dev dependencies: ${list(parents)}.` };
+    }
+    if (all.length) return { alert, reach: "dev-only", evidence: `Only imported in tests: ${list(all)}.` };
+    return {
+      alert,
+      reach: "not-imported",
+      evidence: parents.length ? `Pulled in by ${list(parents)}, but your code imports none of them.` : "Not imported by your code."
+    };
+  }).sort((a, b) => ORDER.indexOf(a.reach) - ORDER.indexOf(b.reach) || SEV.indexOf(a.alert.severity) - SEV.indexOf(b.alert.severity));
+}
+var ORDER = ["called", "imported", "via-dependency", "unknown", "imported-safe", "not-imported", "dev-only"];
+var SEV = ["critical", "high", "medium", "moderate", "low"];
+var REACH_LABEL = {
+  called: "\u{1F534} Reachable",
+  imported: "\u{1F7E0} Imported",
+  "via-dependency": "\u{1F7E0} Via dependency",
+  unknown: "\u2754 Unknown",
+  "imported-safe": "\u{1F7E1} Imported, function not called",
+  "not-imported": "\u26AA Not imported",
+  "dev-only": "\u26AA Dev only"
+};
+var isReachable = (r) => r.reach === "called" || r.reach === "imported" || r.reach === "via-dependency";
+function renderReach(results, note) {
+  const lines = ["### DepGate ReachCheck: open Dependabot alerts", ""];
+  if (note) {
+    lines.push(note);
+    return lines.join("\n");
+  }
+  if (!results.length) {
+    lines.push("No open npm Dependabot alerts. \u2705");
+    return lines.join("\n");
+  }
+  const reachable = results.filter(isReachable).length;
+  lines.push(
+    `**${reachable}** of ${results.length} open alert${results.length > 1 ? "s" : ""} reach your code. Fix those first; the rest are lower priority.`,
+    "",
+    "| Reach | Alert | Package | Severity | Why | Fix |",
+    "| --- | --- | --- | --- | --- | --- |"
+  );
+  for (const r of results.slice(0, 50)) {
+    const a = r.alert;
+    const alertCell = a.url ? `[#${a.number}](${a.url})` : `#${a.number}`;
+    const side = r.side ? ` (${r.side === "both" ? "client + server" : r.side})` : "";
+    lines.push(
+      `| ${REACH_LABEL[r.reach]}${side} | ${alertCell} ${cell(a.summary)} | \`${a.package}\` | ${a.severity} | ${cell(r.evidence)} | ${a.patched ? `Upgrade to ${a.patched}` : "No patch yet"} |`
+    );
+  }
+  if (results.length > 50) lines.push(`| | and ${results.length - 50} more | | | | |`);
+  lines.push("", '<sub>Static check of imports and function names. "Not imported" means lower priority, not safe forever.</sub>');
+  return lines.join("\n");
+}
+function cell(s) {
+  return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+var SEVERITIES = ["low", "medium", "high", "critical"];
+function reachFailure(results, level) {
+  const min = SEVERITIES.indexOf(level);
+  if (min < 0) return void 0;
+  const sev = (s) => SEVERITIES.indexOf(s === "moderate" ? "medium" : s);
+  const bad = results.filter((r) => isReachable(r) && sev(r.alert.severity) >= min);
+  return bad.length ? `${bad.length} reachable Dependabot alert(s) at ${level} or above: ${bad.map((r) => r.alert.package).join(", ")}` : void 0;
+}
+
 // src/report.ts
 var COMMENT_MARKER = "<!-- depgate-report -->";
 var ICON = { high: "\u{1F534} High", medium: "\u{1F7E0} Medium", low: "\u26AA Low" };
@@ -8086,19 +8406,47 @@ var { values, positionals } = parseArgs({
     base: { type: "string", default: "main" },
     head: { type: "string" },
     config: { type: "string", default: ".depgate.json" },
-    strict: { type: "boolean", default: false }
+    strict: { type: "boolean", default: false },
+    repo: { type: "string" },
+    "alerts-file": { type: "string" },
+    "fail-on": { type: "string", default: "none" }
   }
 });
-if (positionals.length > 0 && positionals[0] !== "check") {
-  console.error("Usage: depgate check [--base <git ref or lockfile>] [--head <lockfile>] [--config .depgate.json] [--strict]");
+var USAGE = `Usage:
+  depgate check [--base <git ref or lockfile>] [--head <lockfile>] [--config .depgate.json] [--strict]
+  depgate reach [--repo owner/name | --alerts-file alerts.json] [--head <lockfile>] [--fail-on high]`;
+var command = positionals[0] ?? "check";
+if (command !== "check" && command !== "reach") {
+  console.error(USAGE);
   process.exit(2);
+}
+if (command === "reach") {
+  const lockPath = values.head ?? findLockfile();
+  let alerts;
+  if (values["alerts-file"]) {
+    alerts = JSON.parse(readFileSync3(values["alerts-file"], "utf8")).map((a) => toAlert(a));
+  } else {
+    const [owner, repo] = (values.repo ?? process.env.GITHUB_REPOSITORY ?? "").split("/");
+    const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+    if (!owner || !repo || !token) {
+      console.error("depgate reach needs --repo owner/name and GITHUB_TOKEN (or --alerts-file).");
+      process.exit(2);
+    }
+    alerts = await fetchAlerts({ token, owner, repo });
+  }
+  const graph = dependencyGraph(readFileSync3(lockPath, "utf8"), existsSync3("package.json") ? readFileSync3("package.json", "utf8") : void 0);
+  const results = checkReach(alerts, readSources("."), graph);
+  console.log(renderReach(results));
+  const fail = reachFailure(results, values["fail-on"]);
+  if (fail) console.error(fail);
+  process.exit(fail ? 1 : 0);
 }
 var headPath = values.head ?? findLockfile();
 var config = loadConfig(values.config);
 if (values.strict) config.failOn = "medium";
 var result = await runCheck({
   baseLock: readBase(values.base, headPath),
-  headLock: readFileSync2(headPath, "utf8"),
+  headLock: readFileSync3(headPath, "utf8"),
   config,
   fetchPackument: createRegistryClient(),
   fetchTarball: createTarballClient()
@@ -8106,7 +8454,7 @@ var result = await runCheck({
 console.log(renderReport(result));
 process.exit(result.failed ? 1 : 0);
 function readBase(base, lockPath) {
-  if (existsSync3(base)) return readFileSync2(base, "utf8");
+  if (existsSync3(base)) return readFileSync3(base, "utf8");
   try {
     return execFileSync("git", ["show", `${base}:${lockPath}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 });
   } catch {

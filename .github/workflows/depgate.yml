@@ -6,6 +6,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  security-events: read   # ReachCheck reads Dependabot alerts
 jobs:
   depgate:
     runs-on: ubuntu-latest

@@ -16,9 +16,20 @@ inputs:
   fail-on:
     description: "Fail the check at this severity or above: high, medium, low or none. Overrides the config file."
     required: false
+  alerts:
+    description: "ReachCheck: also triage open Dependabot alerts by whether your code uses the vulnerable package. Needs security-events: read."
+    default: "true"
+  alerts-token:
+    description: Token that can read Dependabot alerts. Defaults to github-token.
+    required: false
+  fail-on-reachable:
+    description: "Fail when a reachable alert is at this severity or above: critical, high, medium, low or none."
+    default: none
 outputs:
   findings:
     description: Number of findings.
+  reachable-alerts:
+    description: Open Dependabot alerts whose package your code uses.
 runs:
   using: node20
   main: dist/index.js
