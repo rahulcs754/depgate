@@ -1,6 +1,9 @@
 # DepGate
 
-A PR gate for **risky npm dependencies**. It checks every new or updated package in your lockfile for signs of a hijack before it reaches `main` or your CI secrets.
+A PR gate for **risky npm dependencies**. One GitHub Action does two jobs:
+
+1. **New packages:** checks every new or updated package in your lockfile for signs of a hijack before it reaches `main` or your CI secrets.
+2. **Existing alerts (ReachCheck):** sorts your open Dependabot alerts by whether your code really uses the vulnerable package, so you fix the ones that matter first.
 
 It never installs or runs the packages. It only reads the lockfile, npm registry metadata and the package files (in memory).
 
@@ -10,6 +13,7 @@ It never installs or runs the packages. It only reads the lockfile, npm registry
 - On 19 May 2026 a Shai-Hulud worm wave published 639 malicious versions across 323 npm packages in one hour.
 - It stole GitHub, npm, cloud and CI tokens, re-published the victims' own packages, and planted backdoors in editor and AI agent config files.
 - `npm audit` and Dependabot only know about published CVEs, so they miss fresh malware.
+- Dependabot also raises many alerts for packages your code never loads, so teams learn to ignore all of them. ReachCheck shows which ones reach your code.
 
 ## What it checks
 
@@ -68,6 +72,9 @@ name: DepGate
 on:
   pull_request:
     paths: ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
+  schedule:
+    - cron: "0 3 * * 1"   # weekly ReachCheck report in the job summary
+  workflow_dispatch:
 permissions:
   contents: read
   pull-requests: write
@@ -79,10 +86,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: rahulcs754/depgate@main
         with:
-          fail-on: high   # high | medium | low | none
+          fail-on: high             # new packages: high | medium | low | none
+          fail-on-reachable: none   # existing alerts: critical | high | medium | low | none
 ```
 
-It posts one PR comment (updated on re-runs) and fails the check at `fail-on` severity or above. No secrets needed.
+On a PR it posts one comment (updated on re-runs) and fails the check at `fail-on` severity or above. On `schedule` or `workflow_dispatch` it writes the ReachCheck table to the job summary. No secrets needed. The same file is in [examples/depgate.yml](examples/depgate.yml).
+
+Example comment:
+
+| Risk | Package | Reason |
+| --- | --- | --- |
+| 🔴 High | `expresss@0.0.1` | Name is one letter away from `express` |
+| 🟠 Medium | `esbuild@0.24.0` | Has postinstall script: `node install.js` |
 
 | Input | Default | What it does |
 | --- | --- | --- |
@@ -91,12 +106,10 @@ It posts one PR comment (updated on re-runs) and fails the check at `fail-on` se
 | `alerts-token` | `github-token` | Token that can read Dependabot alerts |
 | `fail-on-reachable` | `none` | Fail when a reachable alert is at this severity or above (`critical`, `high`, `medium`, `low`) |
 
-Example comment:
-
-| Risk | Package | Reason |
-| --- | --- | --- |
-| 🔴 High | `expresss@0.0.1` | Name is one letter away from `express` |
-| 🟠 Medium | `esbuild@0.24.0` | Has postinstall script: `node install.js` |
+| Output | What it is |
+| --- | --- |
+| `findings` | Number of risky new packages found |
+| `reachable-alerts` | Open Dependabot alerts whose package your code uses |
 
 ## CLI
 
@@ -131,6 +144,6 @@ Optional `.depgate.json` in the repo root (see [examples/.depgate.json](examples
 
 ## Develop
 
-- `npm test`: Vitest with recorded registry fixtures (no network)
+- `npm test`: Vitest with recorded registry fixtures and a small fixture project for ReachCheck (no network)
 - `npm run lint`: type check
 - `npm run build`: bundle to `dist/` (committed, because the Action runs `dist/index.js`)
