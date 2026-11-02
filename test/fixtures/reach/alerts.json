@@ -1,0 +1,34 @@
+[
+  {
+    "number": 1,
+    "html_url": "https://github.com/acme/shop/security/dependabot/1",
+    "dependency": { "package": { "name": "lodash" }, "manifest_path": "package-lock.json", "scope": "runtime", "relationship": "direct" },
+    "security_advisory": { "ghsa_id": "GHSA-35jh-r3h4-6jhm", "summary": "Command injection in lodash", "severity": "high" },
+    "security_vulnerability": { "package": { "name": "lodash" }, "severity": "high", "vulnerable_version_range": "< 4.17.21", "first_patched_version": { "identifier": "4.17.21" } },
+    "vulnerable_functions": ["lodash.template"]
+  },
+  {
+    "number": 2,
+    "dependency": { "package": { "name": "semver" }, "scope": "runtime", "relationship": "transitive" },
+    "security_advisory": { "ghsa_id": "GHSA-c2qf-rxjj-qqgw", "summary": "ReDoS in semver", "severity": "medium" },
+    "security_vulnerability": { "package": { "name": "semver" }, "severity": "medium", "first_patched_version": { "identifier": "7.5.2" } }
+  },
+  {
+    "number": 3,
+    "dependency": { "package": { "name": "minimist" }, "scope": "development", "relationship": "transitive" },
+    "security_advisory": { "ghsa_id": "GHSA-xvch-5gv4-984h", "summary": "Prototype pollution in minimist", "severity": "critical" },
+    "security_vulnerability": { "package": { "name": "minimist" }, "severity": "critical", "first_patched_version": { "identifier": "1.2.6" } }
+  },
+  {
+    "number": 4,
+    "dependency": { "package": { "name": "debug" }, "scope": "runtime", "relationship": "transitive" },
+    "security_advisory": { "ghsa_id": "GHSA-9vvw-cc9w-f27h", "summary": "ReDoS in debug", "severity": "low" },
+    "security_vulnerability": { "package": { "name": "debug" }, "severity": "low", "first_patched_version": { "identifier": "2.6.9" } }
+  },
+  {
+    "number": 5,
+    "dependency": { "package": { "name": "axios" }, "scope": "runtime", "relationship": "direct" },
+    "security_advisory": { "ghsa_id": "GHSA-wf5p-g6vw-rhxx", "summary": "SSRF in axios", "severity": "high" },
+    "security_vulnerability": { "package": { "name": "axios" }, "severity": "high", "first_patched_version": { "identifier": "1.7.4" } }
+  }
+]
